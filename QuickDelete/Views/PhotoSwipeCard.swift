@@ -1,6 +1,15 @@
 import SwiftUI
 import Photos
 
+/// Gesture axis lock — mirrors Android PhotoScreen so diagonal up-swipes
+/// navigate instead of accidentally deleting.
+private enum AxisLock {
+    case none
+    case vertical
+    case horizontalRight
+    case horizontalLeft
+}
+
 struct PhotoSwipeCard: View {
     let asset: PHAsset
     @ObservedObject var photoService: PhotoLibraryService
@@ -18,7 +27,16 @@ struct PhotoSwipeCard: View {
     @State private var opacity: Double = 1
     @State private var isDragging: Bool = false
     @State private var isBusy: Bool = false
+    @State private var axisLock: AxisLock = .none
 
+    /// ~14pt lock slop (matches Android 14dp).
+    private let lockSlop: CGFloat = 14
+    /// Strong cross-axis damp after lock (matches Android 0.08).
+    private let crossAxisDamp: CGFloat = 0.08
+    /// Prefer vertical when |dy| >= |dx| * verticalBias.
+    private let verticalBias: CGFloat = 1.15
+    /// Delete requires |offsetX| > |offsetY| * deleteAxisRatio (or Y≈0 from damp).
+    private let deleteAxisRatio: CGFloat = 1.5
     private let horizontalSwipeThreshold: CGFloat = 120
     private let verticalSwipeThreshold: CGFloat = 80
     private let flingVelocityThreshold: CGFloat = 1200
@@ -40,14 +58,23 @@ struct PhotoSwipeCard: View {
                 }
 
                 if isDragging {
-                    if abs(offset.width) > abs(offset.height) && abs(offset.width) > 30 {
-                        if offset.width > 0 {
-                            deleteIndicatorOverlay(geometry: geometry)
-                        }
-                    } else if offset.height < -30 {
+                    switch axisLock {
+                    case .horizontalRight where offset.width > 30:
+                        deleteIndicatorOverlay(geometry: geometry)
+                    case .vertical where offset.height < -30:
                         nextIndicatorOverlay()
-                    } else if offset.height > 30 && canGoPrevious {
+                    case .vertical where offset.height > 30 && canGoPrevious:
                         previousIndicatorOverlay()
+                    case .none:
+                        if abs(offset.width) > abs(offset.height) && offset.width > 30 {
+                            deleteIndicatorOverlay(geometry: geometry)
+                        } else if offset.height < -30 {
+                            nextIndicatorOverlay()
+                        } else if offset.height > 30 && canGoPrevious {
+                            previousIndicatorOverlay()
+                        }
+                    default:
+                        EmptyView()
                     }
                 }
             }
@@ -61,19 +88,59 @@ struct PhotoSwipeCard: View {
                         guard !isBusy else { return }
                         // Interrupt snap-back / soft anims by taking over from current values
                         isDragging = true
-                        var next = gesture.translation
-                        // Soft resistance on left (no delete)
-                        if next.width < 0 {
-                            next.width *= 0.3
+                        let raw = gesture.translation
+                        let absDx = abs(raw.width)
+                        let absDy = abs(raw.height)
+                        let travel = hypot(raw.width, raw.height)
+
+                        // Decide axis once travel exceeds lock slop
+                        if axisLock == .none {
+                            if travel >= lockSlop || max(absDx, absDy) >= lockSlop {
+                                if absDy >= absDx * verticalBias {
+                                    axisLock = .vertical
+                                } else if raw.width > 0 && absDx > absDy {
+                                    axisLock = .horizontalRight
+                                } else if raw.width < 0 {
+                                    axisLock = .horizontalLeft
+                                } else {
+                                    // Prefer vertical on near-ties
+                                    axisLock = .vertical
+                                }
+                            }
+                        }
+
+                        // Apply axis lock: 1:1 while unlocked; damp cross-axis after lock
+                        var next: CGSize
+                        switch axisLock {
+                        case .none:
+                            next = raw
+                            if next.width < 0 { next.width *= 0.3 }
+                        case .vertical:
+                            // Strongly damp X; only Y drives next/prev; never delete
+                            next = CGSize(width: raw.width * crossAxisDamp, height: raw.height)
+                        case .horizontalRight:
+                            // Strongly damp Y; only +X can delete
+                            next = CGSize(width: raw.width, height: raw.height * crossAxisDamp)
+                        case .horizontalLeft:
+                            // Damp Y; soft left X; snap-back only (never delete)
+                            next = CGSize(width: raw.width * 0.3, height: raw.height * crossAxisDamp)
                         }
                         offset = next
-                        // Live tilt from drag; gentler on left
-                        if next.width > 0 {
+
+                        // Live tilt / scale hint only on delete axis (or unlocked rightward)
+                        let showDeleteHint =
+                            axisLock == .horizontalRight ||
+                            (axisLock == .none && next.width > 0)
+                        if showDeleteHint && next.width > 0 {
                             rotation = Double(min(next.width / 18, 28))
                             scale = 1 - min(next.width / 4000, 0.08)
                             opacity = 1 - Double(min(next.width / 1800, 0.18))
-                        } else {
+                        } else if next.width < 0 {
                             rotation = Double(max(next.width / 40, -8))
+                            scale = 1
+                            opacity = 1
+                        } else {
+                            rotation = 0
                             scale = 1
                             opacity = 1
                         }
@@ -173,27 +240,34 @@ struct PhotoSwipeCard: View {
 
         let absX = abs(offset.width)
         let absY = abs(offset.height)
-        let towardUpperRight =
-            velocityX > flingVelocityThreshold &&
-            velocityY < flingVelocityThreshold * 0.45 &&
-            offset.width > 48
+        let lock = axisLock
+        axisLock = .none
 
-        if (offset.width > horizontalSwipeThreshold && absX > absY) || towardUpperRight {
-            animateDelete(in: geometry, velocityX: velocityX, velocityY: velocityY)
-            return
+        switch lock {
+        case .horizontalRight:
+            // Delete ONLY when locked HorizontalRight
+            let passedDistance = offset.width > horizontalSwipeThreshold
+            let passedFling = velocityX > flingVelocityThreshold && offset.width > 48
+            let axisOk = absX > absY * deleteAxisRatio || absY < 12
+            if (passedDistance || passedFling) && offset.width > 0 && axisOk {
+                animateDelete(in: geometry, velocityX: velocityX, velocityY: velocityY)
+            } else {
+                snapBack()
+            }
+
+        case .vertical:
+            // Next/prev ONLY when locked Vertical
+            if offset.height < -verticalSwipeThreshold {
+                animateVertical(exitY: -geometry.size.height * 1.15, velocityY: velocityY, action: onNext)
+            } else if offset.height > verticalSwipeThreshold && canGoPrevious {
+                animateVertical(exitY: geometry.size.height * 1.15, velocityY: velocityY, action: onPrevious)
+            } else {
+                snapBack()
+            }
+
+        case .horizontalLeft, .none:
+            snapBack()
         }
-
-        if offset.height < -verticalSwipeThreshold && absY > absX {
-            animateVertical(exitY: -geometry.size.height * 1.15, velocityY: velocityY, action: onNext)
-            return
-        }
-
-        if offset.height > verticalSwipeThreshold && absY > absX && canGoPrevious {
-            animateVertical(exitY: geometry.size.height * 1.15, velocityY: velocityY, action: onPrevious)
-            return
-        }
-
-        snapBack()
     }
 
     private func snapBack() {
