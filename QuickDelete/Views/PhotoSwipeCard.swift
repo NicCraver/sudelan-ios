@@ -8,15 +8,21 @@ struct PhotoSwipeCard: View {
     let onNext: () -> Void
     let onPrevious: () -> Void
     let canGoPrevious: Bool
-    
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @State private var image: UIImage?
     @State private var offset: CGSize = .zero
+    @State private var rotation: Double = 0
+    @State private var scale: CGFloat = 1
+    @State private var opacity: Double = 1
     @State private var isDragging: Bool = false
-    @State private var isDeleting: Bool = false
-    
+    @State private var isBusy: Bool = false
+
     private let horizontalSwipeThreshold: CGFloat = 120
     private let verticalSwipeThreshold: CGFloat = 80
-    
+    private let flingVelocityThreshold: CGFloat = 1200
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -32,7 +38,7 @@ struct PhotoSwipeCard: View {
                         .scaleEffect(1.5)
                         .tint(.white)
                 }
-                
+
                 if isDragging {
                     if abs(offset.width) > abs(offset.height) && abs(offset.width) > 30 {
                         if offset.width > 0 {
@@ -46,27 +52,35 @@ struct PhotoSwipeCard: View {
                 }
             }
             .offset(x: offset.width, y: offset.height)
-            .rotationEffect(.degrees(Double(offset.width / 30)))
-            .scaleEffect(isDeleting ? 0.7 : 1.0)
-            .opacity(isDeleting ? 0 : 1)
+            .rotationEffect(.degrees(rotation))
+            .scaleEffect(scale)
+            .opacity(opacity)
             .gesture(
                 DragGesture()
                     .onChanged { gesture in
-                        if !isDeleting {
-                            isDragging = true
-                            
-                            if gesture.translation.width < 0 {
-                                offset = CGSize(
-                                    width: gesture.translation.width * 0.3,
-                                    height: gesture.translation.height
-                                )
-                            } else {
-                                offset = gesture.translation
-                            }
+                        guard !isBusy else { return }
+                        // Interrupt snap-back / soft anims by taking over from current values
+                        isDragging = true
+                        var next = gesture.translation
+                        // Soft resistance on left (no delete)
+                        if next.width < 0 {
+                            next.width *= 0.3
+                        }
+                        offset = next
+                        // Live tilt from drag; gentler on left
+                        if next.width > 0 {
+                            rotation = Double(min(next.width / 18, 28))
+                            scale = 1 - min(next.width / 4000, 0.08)
+                            opacity = 1 - Double(min(next.width / 1800, 0.18))
+                        } else {
+                            rotation = Double(max(next.width / 40, -8))
+                            scale = 1
+                            opacity = 1
                         }
                     }
                     .onEnded { gesture in
                         isDragging = false
+                        guard !isBusy else { return }
                         handleSwipeEnd(gesture: gesture, in: geometry)
                     }
             )
@@ -75,18 +89,18 @@ struct PhotoSwipeCard: View {
             loadImage()
         }
     }
-    
+
     private func deleteIndicatorOverlay(geometry: GeometryProxy) -> some View {
         VStack {
             Spacer()
             HStack {
                 Spacer()
-                
+
                 VStack(spacing: 12) {
                     Image(systemName: "trash.fill")
                         .font(.system(size: 48))
                         .foregroundColor(.white)
-                    
+
                     Text("删除")
                         .font(.system(size: 20, weight: .bold))
                         .foregroundColor(.white)
@@ -97,20 +111,20 @@ struct PhotoSwipeCard: View {
                         .fill(Color.red.opacity(min(offset.width / horizontalSwipeThreshold, 1.0) * 0.8))
                         .frame(width: 140, height: 140)
                 )
-                
+
                 Spacer()
             }
             Spacer()
         }
     }
-    
+
     private func nextIndicatorOverlay() -> some View {
         VStack {
             VStack(spacing: 12) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 48))
                     .foregroundColor(.white)
-                
+
                 Text("下一张")
                     .font(.system(size: 20, weight: .bold))
                     .foregroundColor(.white)
@@ -121,21 +135,21 @@ struct PhotoSwipeCard: View {
                     .fill(Color.blue.opacity(min(abs(offset.height) / verticalSwipeThreshold, 1.0) * 0.8))
                     .frame(width: 140, height: 140)
             )
-            
+
             Spacer()
         }
         .padding(.top, 100)
     }
-    
+
     private func previousIndicatorOverlay() -> some View {
         VStack {
             Spacer()
-            
+
             VStack(spacing: 12) {
                 Image(systemName: "arrow.down")
                     .font(.system(size: 48))
                     .foregroundColor(.white)
-                
+
                 Text("上一张")
                     .font(.system(size: 20, weight: .bold))
                     .foregroundColor(.white)
@@ -149,67 +163,115 @@ struct PhotoSwipeCard: View {
         }
         .padding(.bottom, 100)
     }
-    
+
     private func handleSwipeEnd(gesture: DragGesture.Value, in geometry: GeometryProxy) {
-        let horizontalDistance = abs(gesture.translation.width)
-        let verticalDistance = abs(gesture.translation.height)
-        
-        if horizontalDistance > verticalDistance {
-            if gesture.translation.width > horizontalSwipeThreshold {
-                animateDelete(in: geometry)
-            } else {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    offset = .zero
-                }
-            }
-        } else {
-            if gesture.translation.height < -verticalSwipeThreshold {
-                animateNext()
-            } else if gesture.translation.height > verticalSwipeThreshold && canGoPrevious {
-                animatePrevious()
-            } else {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    offset = .zero
-                }
-            }
+        let translation = gesture.translation
+        // predictedEnd - translation approximates release velocity projection (points)
+        let predicted = gesture.predictedEndTranslation
+        let velocityX = predicted.width - translation.width
+        let velocityY = predicted.height - translation.height
+
+        let absX = abs(offset.width)
+        let absY = abs(offset.height)
+        let towardUpperRight =
+            velocityX > flingVelocityThreshold &&
+            velocityY < flingVelocityThreshold * 0.45 &&
+            offset.width > 48
+
+        if (offset.width > horizontalSwipeThreshold && absX > absY) || towardUpperRight {
+            animateDelete(in: geometry, velocityX: velocityX, velocityY: velocityY)
+            return
+        }
+
+        if offset.height < -verticalSwipeThreshold && absY > absX {
+            animateVertical(exitY: -geometry.size.height * 1.15, velocityY: velocityY, action: onNext)
+            return
+        }
+
+        if offset.height > verticalSwipeThreshold && absY > absX && canGoPrevious {
+            animateVertical(exitY: geometry.size.height * 1.15, velocityY: velocityY, action: onPrevious)
+            return
+        }
+
+        snapBack()
+    }
+
+    private func snapBack() {
+        // Critically damped — no bounce; interruptible by next drag
+        withAnimation(.spring(response: 0.32, dampingFraction: 1.0, blendDuration: 0)) {
+            offset = .zero
+            rotation = 0
+            scale = 1
+            opacity = 1
         }
     }
-    
-    private func animateDelete(in geometry: GeometryProxy) {
-        isDeleting = true
-        
-        withAnimation(.easeInOut(duration: DeleteAnimation.duration)) {
-            offset = CGSize(
-                width: DeleteAnimation.exitOffset,
-                height: DeleteAnimation.exitOffsetY
-            )
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + DeleteAnimation.duration) {
+
+    private func animateDelete(in geometry: GeometryProxy, velocityX: CGFloat, velocityY: CGFloat) {
+        isBusy = true
+        DeleteFeedback.trigger()
+
+        if reduceMotion {
+            opacity = 0
             onDelete()
+            resetTransforms()
+            isBusy = false
+            return
+        }
+
+        let projectedX = max(offset.width + velocityX * 0.55, geometry.size.width * 1.25)
+        let projectedY = min(offset.height + velocityY * 0.4, -geometry.size.height * 0.45)
+        let boost = min(max(Double(velocityX) / 3200.0 * 10.0, 0), 10)
+        let throwRotation = min(max(rotation + boost, 0), 32)
+
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.86, blendDuration: 0)) {
+            offset = CGSize(width: projectedX, height: projectedY)
+            rotation = throwRotation
+            scale = 0.90
+            opacity = 0
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
+            onDelete()
+            resetTransforms()
+            isBusy = false
         }
     }
-    
-    private func animateNext() {
-        withAnimation(.easeInOut(duration: 0.25)) {
-            offset = CGSize(width: 0, height: -1000)
+
+    private func animateVertical(exitY: CGFloat, velocityY: CGFloat, action: @escaping () -> Void) {
+        isBusy = true
+
+        if reduceMotion {
+            action()
+            resetTransforms()
+            isBusy = false
+            return
         }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            onNext()
+
+        let projected = velocityY < 0
+            ? min(offset.height + velocityY * 0.2, exitY)
+            : max(offset.height + velocityY * 0.2, exitY)
+        let speed = abs(velocityY)
+        let duration = min(0.18, max(0.12, 0.18 - Double(speed) / 20000))
+
+        withAnimation(.easeOut(duration: duration)) {
+            offset = CGSize(width: 0, height: projected)
+            opacity = 0.85
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            action()
+            resetTransforms()
+            isBusy = false
         }
     }
-    
-    private func animatePrevious() {
-        withAnimation(.easeInOut(duration: 0.25)) {
-            offset = CGSize(width: 0, height: 1000)
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            onPrevious()
-        }
+
+    private func resetTransforms() {
+        offset = .zero
+        rotation = 0
+        scale = 1
+        opacity = 1
     }
-    
+
     private func loadImage() {
         photoService.loadImage(for: asset) { loadedImage in
             self.image = loadedImage
