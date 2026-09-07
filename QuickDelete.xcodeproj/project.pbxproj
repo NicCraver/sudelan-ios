@@ -15,6 +15,9 @@
 		A1000011000000000000001 /* DeleteAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000012000000000000001 /* DeleteAction.swift */; };
 		A1000013000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000014000000000000001 /* Assets.xcassets */; };
 		A1000015000000000000001 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000016000000000000001 /* Preview Assets.xcassets */; };
+		A1000041000000000000001 /* AlbumView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000042000000000000001 /* AlbumView.swift */; };
+		A1000043000000000000001 /* RecycleBinView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000044000000000000001 /* RecycleBinView.swift */; };
+		A1000045000000000000001 /* MeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000046000000000000001 /* MeView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +31,9 @@
 		A1000014000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000016000000000000001 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		A1000018000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1000042000000000000001 /* AlbumView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumView.swift; sourceTree = "<group>"; };
+		A1000044000000000000001 /* RecycleBinView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecycleBinView.swift; sourceTree = "<group>"; };
+		A1000046000000000000001 /* MeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -85,6 +91,9 @@
 			children = (
 				A1000008000000000000001 /* SwipeFeedView.swift */,
 				A1000010000000000000001 /* PhotoSwipeCard.swift */,
+				A1000042000000000000001 /* AlbumView.swift */,
+				A1000044000000000000001 /* RecycleBinView.swift */,
+				A1000046000000000000001 /* MeView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -173,6 +182,9 @@
 				A1000007000000000000001 /* SwipeFeedView.swift in Sources */,
 				A1000009000000000000001 /* PhotoSwipeCard.swift in Sources */,
 				A1000011000000000000001 /* DeleteAction.swift in Sources */,
+				A1000041000000000000001 /* AlbumView.swift in Sources */,
+				A1000043000000000000001 /* RecycleBinView.swift in Sources */,
+				A1000045000000000000001 /* MeView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -304,7 +316,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_ASSET_PATHS = "\"QuickDelete/Preview Content\"";
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
@@ -321,7 +333,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.quickdelete.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -340,7 +352,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_ASSET_PATHS = "\"QuickDelete/Preview Content\"";
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
@@ -357,7 +369,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.quickdelete.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

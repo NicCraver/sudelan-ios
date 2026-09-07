@@ -168,7 +168,7 @@ struct PhotoSwipeCard: View {
                         .font(.system(size: 48))
                         .foregroundColor(.white)
 
-                    Text("删除")
+                    Text("回收站")
                         .font(.system(size: 20, weight: .bold))
                         .foregroundColor(.white)
                 }
